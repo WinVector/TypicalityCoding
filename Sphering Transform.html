@@ -1,0 +1,94 @@
+<p>Many people who work with data are familiar with Principal Components Analysis (PCA): it's a linear transformation technique that's commonly used for dimension reduction, as well as for the orthogonalization of data prior to downstream modeling or analysis. In this article, we'll talk about another PCA-style transformation: the sphering or <a href="https://en.wikipedia.org/wiki/Whitening_transformation">whitening transformation</a>, and some of its data science related applications.</p>
+<h2 id="pca-projection-vs-sphering-transformation">PCA Projection vs Sphering Transformation</h2>
+<p>Given a set of data in R<sup>n</sup>, the goal of PCA is to find the best projection of that data into R<sup>k </sup>(where k&lt;n): that is, the projection into R<sup>k </sup> that preserves as much of the distance information between the original points as it can. The assumption is generally that even though the data is described in n dimensions, it "really lives" in a smaller k-dimensional hyperplane, and any variation in the other n-k dimensions is just noise.</p>
+<p>Mathematically, you can think of a dataset X in R<sup>n</sup> (where each row of X is an n-dimensional datum) as being roughly described by a ellipsoid in R<sup>n</sup> that is formed by the matrix X<sup>T</sup>X<a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a>. PCA finds the axes of this ellipsoid, sorted by their radii (longest first); rotates the ellipsoid to be axis-aligned (so that the longest axis is now the x axis); then "flattens" (projects) the data down to the hyperplane described by the first k axes.</p>
+<figure>
+<img src="plots/pca_example.png" alt="Conceptual illustration of PCA" /><figcaption aria-hidden="true">Conceptual illustration of PCA</figcaption>
+</figure>
+<p>(Caption: Conceptual illustration of PCA)</p>
+<p>The trick, of course, is to find the right k: that is, the k dimensions that capture all the important information in the data.</p>
+<p>A sphering transformation (to be precise, the sphering transformation called PCA whitening) also finds this hyperellipsoid of X and rotates it to be axis aligned. But instead of projecting the ellipsoid down to a lower dimensional space, sphering instead "reshapes" the ellipsoid into the unit sphere.<a href="#fn2" class="footnote-ref" id="fnref2" role="doc-noteref"><sup>2</sup></a> This reshaping tends to shrink the directions the data already has a lot of variation in (the long axes of the ellipsoid), and stretch the directions where the data does not vary much (the short axes of the ellipsoid), with the result that the expected squared norm of a transformed datum is one. You can think of this stretching/shrinking of an axis x<sub>i</sub> as being proportional to 1/sqrt(s<sub>i</sub>), where s<sub>i</sub> is the ith singular value of X<sup>T</sup>X (the radius of the ith axis).<a href="#fn3" class="footnote-ref" id="fnref3" role="doc-noteref"><sup>3</sup></a></p>
+<p>Rather than another drawing, let's show an example. The full code for this example can be found <a href="https://github.com/WinVector/TypicalityCoding/blob/main/example_sphering_transform.ipynb">here</a>.</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co"># build some example data </span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> generate_ellipse(n_rows: <span class="bu">int</span>, mix: <span class="bu">float</span> <span class="op">=</span> <span class="fl">1e-2</span>):</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="co"># build some example data.</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="co"># mostly varies on the line x=y, with a small perpendicular component</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    v1 <span class="op">=</span> rng.normal(size<span class="op">=</span>n_rows)</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    v2 <span class="op">=</span> rng.normal(size<span class="op">=</span>n_rows)</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    d <span class="op">=</span> pd.DataFrame({</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="st">&#39;x&#39;</span>: v1,</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="st">&#39;y&#39;</span>: v1 <span class="op">+</span> mix <span class="op">*</span> v2,</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    })</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> d</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>n_rows <span class="op">=</span> <span class="dv">200</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>d_train <span class="op">=</span> generate_ellipse(n_rows)</span></code></pre></div>
+<p><img src="plots/raw_data_train.png" /></p>
+<p>(Caption: Scatter plot of raw data. The data mostly varies along the line <code>x=y</code>, with a tiny bit of variation in the perpendicular direction – a really skinny ellipsoid)</p>
+<p>Our sphering transform code can be found <a href="https://github.com/WinVector/TypicalityCoding/blob/main/sphering_transform.py">here</a>.</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Our function to fit a sphering transform. </span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>st <span class="op">=</span> SpheringTransform()</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>st.fit(d_train)</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="co"># transform the training data</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>xformed_train <span class="op">=</span> st.transform(d_train)</span></code></pre></div>
+<p><img src="plots/xformed_data_train.png" /></p>
+<p>(Caption: The scatterplot of the transformed data appears more spherical)</p>
+<h2 id="an-application-of-the-sphering-transformation">An Application of the Sphering Transformation</h2>
+<p>Why do we want to sphere-transform our data? One reason is that transforming the data can make it easier to detect whether a new set of data, W, has the same distribution as X. The sphering transform fixes issues of units and linearly correlated variables. It "sharpens" our statistical view on which directions of variation are common, and which are rare.</p>
+<p>Let's call X our reference dataset. We can learn a sphering transform from X, then apply that transform to X, as we did above. Let's call the transformed data set X<sub>T</sub>. We can then get the distribution of the norms of the datums x<sub>T</sub> in X<sub>T</sub>. Let's call that distribution L<sub>X</sub>.</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>xformed_train_norms <span class="op">=</span> norm(xformed_train, axis<span class="op">=</span><span class="dv">1</span>)</span></code></pre></div>
+<p><img src="plots/xform_train_dist.png" /></p>
+<p>(Caption: The distribution of the norms of the transformed data)</p>
+<p>If we transform a new data set W using the sphere-transform we learned from X, and W was drawn from the same distribution as X, then L<sub>W</sub> should be the same as L<sub>X</sub>.</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># data generated from the same distribution as the training data</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>d_test <span class="op">=</span> generate_ellipse(n_rows)</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>xformed_test <span class="op">=</span> st.transform(d_test)</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>xformed_test_norms <span class="op">=</span> norm(xformed_test, axis<span class="op">=</span><span class="dv">1</span>)</span></code></pre></div>
+<p><img src="plots/xform_comp_same.png" /></p>
+<p>(Caption: The norm distributions of the sphere-transformed training and test data match)</p>
+<p>But if W was drawn from a different distribution, one that varies more in directions where X does not, then the norms of w<sub>T</sub> will tend to be longer than those of x<sub>T</sub>. And if W was drawn from a distribution that varies less in directions where X varied widely, then the norms of w<sub>T</sub> will tend to be shorter than those of x<sub>T</sub>. Either way, L<sub>W</sub> will be different from L<sub>X</sub>.</p>
+<p>Let's see an example of this. Here we'll generate a data set that is still mostly aligned to the <code>x=y</code> axis, but has a larger perpendicular component.</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># the new data is still mostly aligned to x=y, </span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="co"># but has a larger perpendicular component</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>d_test_different <span class="op">=</span> generate_ellipse(n_rows, mix<span class="op">=</span><span class="fl">0.1</span>)</span></code></pre></div>
+<p><img src="plots/new_raw.png" /></p>
+<p>(Caption: Scatterplot of the new data set)</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co"># transform the new data, and get the norm distribution</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>xformed_test_different <span class="op">=</span> st.transform(d_test_different)</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>xformed_test_different_norms <span class="op">=</span> norm(xformed_test_different, axis<span class="op">=</span><span class="dv">1</span>)</span></code></pre></div>
+<p>We can look at the distributions of the data norms in the <em>original</em> (not transformed) space. The distributions don't seem that different.</p>
+<p><img src="plots/new_raw_comp_original_space.png" /></p>
+<p>(Caption: The norm distribution of the new data set is not very different from that of the training set, in the original space)</p>
+<p>However, the sphering transform highlights differences.</p>
+<p><img src="plots/new_raw_comp_xformed.png" /></p>
+<p>(Caption: The norm distribution of the new data set is very different from that of the training set, in the sphere-transformed space)</p>
+<p>Even visually, the difference between the distributions L<sub>X</sub> and L<sub>W</sub> is more striking than the difference between the distributions (scatterplots) of the datasets X and W. In other words, we've turned the fairly hairy problem of detecting the differences of multivariate distributions (or multivariate distribution drift) into the <em>much</em> simpler problem of detecting univariate distribution drift.</p>
+<p>Quantitatively, there are a variety of ways to measure the difference of two univariate distributions. Common measures include the Kolmogorov-Smirnov test, Kullback-Leibler divergence, Jensen-Shannon divergence, and the Population Stability Index. You can pick the measure that is most appropriate for your specific problem.</p>
+<h3 id="digging-deeper">Digging Deeper</h3>
+<p>If you are interested in exploring sphering transformations for yourself, you can find the code that we used for this article at our <a href="https://github.com/WinVector/TypicalityCoding">GitHub repository</a>. The repo includes:</p>
+<ul>
+<li><a href="https://github.com/WinVector/TypicalityCoding/blob/main/sphering_transform.py"><code>sphering_transform.py</code></a> : the module that implements the transform</li>
+<li><a href="https://github.com/WinVector/TypicalityCoding/blob/main/example_sphering_transform.ipynb">The notebook with the examples used in this article</a>.</li>
+</ul>
+<p>For fun, we've also attached some simple example applications of the sphering transform</p>
+<ul>
+<li><a href="https://github.com/WinVector/TypicalityCoding/blob/main/test_cnc_anomaly.ipynb">The sphering transform for anomaly detection on CNC vibration data.</a></li>
+<li><a href="https://github.com/WinVector/TypicalityCoding/blob/main/text_embedding_example.ipynb">An example of applying the sphering transform to text embeddings: detecting changes in a text corpus.</a></li>
+</ul>
+<h3 id="another-pca-based-approach-to-multivariate-distribution-drift">Another PCA-based Approach to Multivariate Distribution Drift</h3>
+<p>I also want to mention another PCA-based approach to detecting differences in multivariate distributions: <a href="https://www.nannyml.com/blog/detecting-covariate-shift-multivariate-approach#detecting-covariate-shift-a-multivariate-approach">reconstruction error</a>. This is the approach taken by nannyML's multivariate drift detector. The article I've linked to gives a more detailed explanation, but essentially the method uses PCA to project the data down to its k-dimensional "signal" hyperplane, than projects the transformed data back into the full n dimensions. The <em>reconstruction error</em> is the difference (or the norms of the difference vectors) between the original datums and their reconstructions.</p>
+<p>By learning the PCA transform on a reference set, one can then compare the distribution of the reconstruction error on the reference data to the reconstruction error on new data.</p>
+<h2 id="conclusion">Conclusion</h2>
+<p>The sphering transform is a useful tool for the data scientist, especially when working on drift detection.</p>
+<h2 id="notes">Notes</h2>
+<section class="footnotes" role="doc-endnotes">
+<hr />
+<ol>
+<li id="fn1" role="doc-endnote"><p>The analysis requires X to be centered at the origin. Our code makes sure to do this.<a href="#fnref1" class="footnote-back" role="doc-backlink">&#8592;</a></p></li>
+<li id="fn2" role="doc-endnote"><p>Keeping all the singular values may seem dangerous. However, at worst we are just asking the software to build bases for the column space and complementary null space.<a href="#fnref2" class="footnote-back" role="doc-backlink">&#8592;</a></p></li>
+<li id="fn3" role="doc-endnote"><p>The above discussion assumes that X<sup>T</sup>X is full rank. If it is not, we can make it full rank by adding a tiny copy of the identity matrix to it. This regularization will fuzz the transformation a little bit, but preserves its most important properties. Again, our code makes sure to take this step.<a href="#fnref3" class="footnote-back" role="doc-backlink">&#8592;</a></p></li>
+</ol>
+</section>
