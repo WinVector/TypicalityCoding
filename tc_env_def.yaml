@@ -1,0 +1,28 @@
+name: tc_env
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - PyYAML
+  - black
+  - ipywidgets
+  - jupyterlab
+  - matplotlib
+  - mypy
+  - pandas>=2.*.*
+  - numpy
+  - pdoc
+  - plotly
+  - pyarrow
+  - pytest
+  - pytest-cov
+  - python=3.11.*
+  - scikit-learn
+  - scipy
+  - seaborn
+  - jinja2==3.0.3
+  - pip
+  - pip:
+    - wvpy>=0.4.2
+    - polars
+
