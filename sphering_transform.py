@@ -53,7 +53,7 @@ class SpheringTransform:
         # save result as attributes
         self.center = center
         self.xform = xform
-        # optional rescale so mean square norm is 1 on training data
+        # rescale so mean square norm is 1 on training data
         x_transformed = self.transform(X)
         x_norm_sq = norm(x_transformed, axis=1)**2
         self.scale = 1/np.sqrt(np.mean(x_norm_sq))
